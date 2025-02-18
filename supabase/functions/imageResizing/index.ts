@@ -3,10 +3,11 @@ import {
   initializeImageMagick,
   MagickFormat,
 } from "npm:@imagemagick/magick-wasm@0.0.30";
-import fs from "node:fs";
+
 // Add Bunny.net storage configuration
 const BUNNY_STORAGE_URL = "https://syd.storage.bunnycdn.com/buisnesstool-course";
-const BUNNY_API_KEY = "8cb972e1-29b1-4405-9235d083f503-00b0-4b0b"; // Replace with your actual API key
+const BUNNY_API_KEY = Deno.env.get('BUNNY_API_KEY')// Replace with your actual API key
+console.log(BUNNY_API_KEY);
 
 const wasmBytes = await Deno.readFile(
   new URL(
@@ -17,17 +18,19 @@ const wasmBytes = await Deno.readFile(
 
 await initializeImageMagick(wasmBytes);
 
-// Function to upload to Bunny.net storage
+// Modified upload function to handle Uint8Array directly
 async function uploadToBunnyStorage(imageData, fileName) {
   try {
-    const fileStream = fs.createReadStream(imageData);
+    // Create a Blob from the Uint8Array
+    const blob = new Blob([imageData], { type: 'image/webp' });
+
     const response = await fetch(`${BUNNY_STORAGE_URL}/${fileName}`, {
       method: 'PUT',
       headers: {
         'AccessKey': BUNNY_API_KEY,
         'Content-Type': 'image/webp'
       },
-      body: imageData
+      body: blob
     });
 
     if (!response.ok) {
@@ -41,9 +44,10 @@ async function uploadToBunnyStorage(imageData, fileName) {
   }
 }
 
+// CORS headers
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*", // Be more specific in production
-  "Access-Control-Allow-Methods": "*",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -59,13 +63,14 @@ Deno.serve(async (req) => {
   try {
     const formData = await req.formData();
     const file = formData.get("file");
+    const key = formData.get("key");
     const content = await file.arrayBuffer();
     
     let result = await ImageMagick.read(
       new Uint8Array(content),
       (img) => {
         // Resize to 352x198
-        img.resize(352, 198);
+        img.resize(16*22, 9*22);
         
         // Convert to WebP format
         return img.write(
@@ -74,12 +79,9 @@ Deno.serve(async (req) => {
         );
       },
     );
-
-    // Generate a unique filename
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.webp`;
     
     // Upload to Bunny.net storage
-    const uploadUrl = await uploadToBunnyStorage(result, fileName);
+    const uploadUrl = await uploadToBunnyStorage(result,key);
 
     return new Response(
       JSON.stringify({ success: true, url: uploadUrl }),
