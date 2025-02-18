@@ -3,11 +3,13 @@ import {
   initializeImageMagick,
   MagickFormat,
 } from "npm:@imagemagick/magick-wasm@0.0.30";
+import { corsHeaders } from '../_shared/cors.ts'
 
 // Add Bunny.net storage configuration
 const BUNNY_STORAGE_URL = "https://syd.storage.bunnycdn.com/buisnesstool-course";
-const BUNNY_API_KEY = Deno.env.get('BUNNY_API_KEY')// Replace with your actual API key
-console.log(BUNNY_API_KEY);
+const BUNNY_STORAGE_ZONE = "buisnesstool-course"; // Your storage zone name
+const BUNNY_PULL_ZONE_URL = `https://${BUNNY_STORAGE_ZONE}.b-cdn.net`; // Add your pull zone URL
+const BUNNY_API_KEY = Deno.env.get('BUNNY_API_KEY');
 
 const wasmBytes = await Deno.readFile(
   new URL(
@@ -18,12 +20,10 @@ const wasmBytes = await Deno.readFile(
 
 await initializeImageMagick(wasmBytes);
 
-// Modified upload function to handle Uint8Array directly
 async function uploadToBunnyStorage(imageData, fileName) {
   try {
-    // Create a Blob from the Uint8Array
     const blob = new Blob([imageData], { type: 'image/webp' });
-
+    
     const response = await fetch(`${BUNNY_STORAGE_URL}/${fileName}`, {
       method: 'PUT',
       headers: {
@@ -37,27 +37,30 @@ async function uploadToBunnyStorage(imageData, fileName) {
       throw new Error(`Upload failed: ${response.statusText}`);
     }
 
-    return `${BUNNY_STORAGE_URL}/${fileName}`;
+    // Return the Pull Zone URL instead of Storage URL
+    return `${BUNNY_PULL_ZONE_URL}/${fileName}`;
   } catch (error) {
     console.error('Upload error:', error);
     throw error;
   }
 }
 
-// CORS headers
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
-      headers: corsHeaders
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+  }
+
+  if (req.method === "GET") {
+    return new Response(
+      JSON.stringify({ message: "running" }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
   }
 
   try {
@@ -79,28 +82,21 @@ Deno.serve(async (req) => {
         );
       },
     );
-    
+
     // Upload to Bunny.net storage
-    const uploadUrl = await uploadToBunnyStorage(result,key);
+    const uploadUrl = await uploadToBunnyStorage(result, key);
 
     return new Response(
       JSON.stringify({ success: true, url: uploadUrl }),
-      { 
-        headers: { 
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
-
   } catch (error) {
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
-      { 
-        headers: { 
-          ...corsHeaders,
-          "Content-Type": "application/json" 
-        },
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500
       }
     );
